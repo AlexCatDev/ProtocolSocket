@@ -21,7 +21,8 @@ Simple example on how to use:
 
             //S = sender, e = exception (can be null), connected = if client is connected
             server.ClientStateChanged += (s, e, connected) => {
-                Console.WriteLine("Client " + s.RemoteEndPoint + " changed state connected? " + connected + " message " + e?.Message);
+                Console.WriteLine("Client " + s.RemoteEndPoint + " changed state connected? " + 
+                connected + " message " + e?.Message);
             };
             server.PacketReceived += (s, e) => {
                 Console.WriteLine("Received " + e.Length + " from " + s.RemoteEndPoint);
