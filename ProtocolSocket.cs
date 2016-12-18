@@ -157,7 +157,7 @@ namespace ProtocolSocket
                 totalPayloadSize = payloadSize;
 
                     if (payloadSize > SocketOptions.MaxPacketSize)
-                        throw new ProtocolViolationException($"Payload size exeeded max allowed [{payloadSize} > {SocketOptions.AllowZeroLengthPackets}]");
+                        throw new ProtocolViolationException($"Payload size exeeded max allowed [{payloadSize} > {SocketOptions.MaxPacketSize}]");
                     else if (payloadSize == 0) {
                         if (SocketOptions.AllowZeroLengthPackets) {
                             BeginRead();

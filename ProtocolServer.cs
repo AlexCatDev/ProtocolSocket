@@ -34,7 +34,6 @@ namespace ProtocolSocket
         }
 
         public bool Running { get; private set; }
-        public int Port { get; private set; }
         public ProtocolServerOptions ServerSocketOptions { get; private set; }
 
         Socket listener;
@@ -46,9 +45,8 @@ namespace ProtocolSocket
         /// </summary>
         /// <param name="Port">Port to listen on</param>
         /// <param name="MaxPacketSize">Determines the max allowed packet size to be received, unless specifically set by the client object</param>
-        public ProtocolServer(int port, ProtocolServerOptions serverSocketOptions)
+        public ProtocolServer(ProtocolServerOptions serverSocketOptions)
         {
-            Port = port;
             Running = false;
             syncLock = new object();
             ServerSocketOptions = serverSocketOptions;
@@ -59,10 +57,12 @@ namespace ProtocolSocket
         public void Start()
         {
             if (Running) {
-                throw new InvalidOperationException("Listener is already running.");
+                throw new InvalidOperationException("Server is already running.");
             } else {
                 listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                listener.Bind(new IPEndPoint(0, Port));
+                if (ServerSocketOptions.ListenEndPoint == null)
+                    throw new InvalidOperationException("Please specify a endpoint to listen on before calling Start()");
+                listener.Bind(ServerSocketOptions.ListenEndPoint);
                 listener.Listen(ServerSocketOptions.MaxConnectionQueue);
                 Running = true;
                 ListeningStateChanged?.Invoke(this, Running);
@@ -90,6 +90,7 @@ namespace ProtocolSocket
         {
             try {
                 Socket accepted = listener.EndAccept(iar);
+                accepted.NoDelay = true;
                 ProtocolSocket protocolSocket = new ProtocolSocket(accepted, ServerSocketOptions.ProtocolSocketOptions);
 
                 protocolSocket.ClientStateChanged += ProtocolSocket_ClientStateChanged;
