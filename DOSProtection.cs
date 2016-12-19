@@ -2,13 +2,24 @@
 {
     public class DOSProtection
     {
+        /// <summary>
+        /// Max packets allowed over time
+        /// </summary>
         public int MaxPackets { get; set; }
-        public int OverTime { get; set; }
+        /// <summary>
+        /// The time in milliseconds
+        /// </summary>
+        public int Delta { get; set; }
 
-        public DOSProtection(int maxPackets, int overTime)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="maxPackets">Max packets over time</param>
+        /// <param name="delta">Time for max packets in milliseconds</param>
+        public DOSProtection(int maxPackets, int delta)
         {
             MaxPackets = maxPackets;
-            OverTime = overTime;
+            Delta = delta;
         }
     }
 }

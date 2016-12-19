@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Net;
 using System.Net.Sockets;
 
 namespace ProtocolSocket
@@ -8,17 +7,17 @@ namespace ProtocolSocket
     public class ProtocolServer : IDisposable
     {
         //Listener event delegates
-        public delegate void ListeningStateChangedEventHandler(ProtocolServer sender, bool Listening);
+        public delegate void ListeningStateChangedEventHandler(ProtocolServer sender, bool listening);
 
         //Listener events
         public event ListeningStateChangedEventHandler ListeningStateChanged;
 
         //Client event delegates
-        public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs PacketReceivedEventArgs);
+        public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
-        public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception Message, bool Connected);
-        public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int Received, int BytesToReceive);
-        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int Send);
+        public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception message, bool connected);
+        public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int received, int bytesToReceive);
+        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
 
         //Client events
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
@@ -27,69 +26,65 @@ namespace ProtocolSocket
         public event DOSDetectedEventHandler DOSDetected;
         public event SendProgressChangedEventHandler SendProgressChanged;
 
+        public bool Listening { get; private set; }
+        public ProtocolServerOptions ServerSocketOptions { get; private set; }
+
         public List<ProtocolSocket> ConnectedClients {
             get {
                 lock (syncLock) { return connectedClients; }
             }
         }
 
-        public bool Running { get; private set; }
-        public ProtocolServerOptions ServerSocketOptions { get; private set; }
-
-        Socket listener;
+        Socket listeningSocket;
         List<ProtocolSocket> connectedClients;
         object syncLock;
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="Port">Port to listen on</param>
-        /// <param name="MaxPacketSize">Determines the max allowed packet size to be received, unless specifically set by the client object</param>
         public ProtocolServer(ProtocolServerOptions serverSocketOptions)
         {
-            Running = false;
+            Listening = false;
             syncLock = new object();
             ServerSocketOptions = serverSocketOptions;
             connectedClients = new List<ProtocolSocket>();
 
         }
 
-        public void Start()
+        public void Listen()
         {
-            if (Running) {
-                throw new InvalidOperationException("Server is already running.");
+            if (Listening) {
+                throw new InvalidOperationException("Server is already listening. Please call Close() before calling Listen()");
             } else {
-                listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 if (ServerSocketOptions.ListenEndPoint == null)
-                    throw new InvalidOperationException("Please specify a endpoint to listen on before calling Start()");
-                listener.Bind(ServerSocketOptions.ListenEndPoint);
-                listener.Listen(ServerSocketOptions.MaxConnectionQueue);
-                Running = true;
-                ListeningStateChanged?.Invoke(this, Running);
-                listener.BeginAccept(AcceptCallBack, null);
+                    throw new InvalidOperationException("Please specify a endpoint to listen on before calling Listen()");
+
+                listeningSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                listeningSocket.Bind(ServerSocketOptions.ListenEndPoint);
+                listeningSocket.Listen(ServerSocketOptions.MaxConnectionQueue);
+                Listening = true;
+                ListeningStateChanged?.Invoke(this, Listening);
+                listeningSocket.BeginAccept(AcceptCallBack, null);
             }
         }
 
         public void Stop()
         {
-            if (Running) {
-                listener.Close();
-                listener = null;
+            if (Listening) {
+                listeningSocket.Close();
+                listeningSocket = null;
                 foreach (var client in connectedClients) {
                     client.Dispose();
                 }
                 connectedClients.Clear();
-                Running = false;
-                ListeningStateChanged?.Invoke(this, Running);
+                Listening = false;
+                ListeningStateChanged?.Invoke(this, Listening);
             } else {
-                throw new InvalidOperationException("Listener isn't running.");
+                throw new InvalidOperationException("Server isn't listening. Please call Listen() before calling Close()");
             }
         }
 
         private void AcceptCallBack(IAsyncResult iar)
         {
             try {
-                Socket accepted = listener.EndAccept(iar);
+                Socket accepted = listeningSocket.EndAccept(iar);
                 accepted.NoDelay = true;
                 ProtocolSocket protocolSocket = new ProtocolSocket(accepted, ServerSocketOptions.ProtocolSocketOptions);
 
@@ -100,7 +95,7 @@ namespace ProtocolSocket
                 protocolSocket.DOSDetected += ProtocolSocket_DOSDetected;
 
                 protocolSocket.Start();
-                listener.BeginAccept(AcceptCallBack, null);
+                listeningSocket.BeginAccept(AcceptCallBack, null);
             } catch {
                 //MessageBox.Show(ex.Message + " \n\n [" + ex.StackTrace + "]");
             }

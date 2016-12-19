@@ -10,7 +10,7 @@ namespace ProtocolSocket
 
         public ProtocolSocketOptions()
         {
-            MaxPacketSize = Int32.MaxValue;
+            MaxPacketSize = ushort.MaxValue - 4;
             AllowZeroLengthPackets = false;
         }
     }

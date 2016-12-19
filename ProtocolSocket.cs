@@ -14,11 +14,11 @@ namespace ProtocolSocket
         //The size of the size header.
         public const int SIZE_BUFFER_LENGTH = 4;
 
-        public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs PacketReceivedEventArgs);
+        public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
-        public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception Message, bool Connected);
-        public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int Received, int BytesToReceive);
-        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int Send);
+        public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception message, bool connected);
+        public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int bytesReceived, int bytesToReceive);
+        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
 
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
         public event PacketReceivedEventHandler PacketReceived;
@@ -237,7 +237,7 @@ namespace ProtocolSocket
                 receiveRate++;
 
                 //Time to check for receive rate
-                if (stopWatch.ElapsedMilliseconds >= SocketOptions.DOSProtection.OverTime) {
+                if (stopWatch.ElapsedMilliseconds >= SocketOptions.DOSProtection.Delta) {
 
                     //Check if we exeeded the maximum receive rate
                     if (receiveRate > SocketOptions.DOSProtection?.MaxPackets)
