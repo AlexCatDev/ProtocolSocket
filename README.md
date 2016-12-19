@@ -8,10 +8,16 @@ Simple example on how to use:
             ProtocolSocketOptions socketOptions = new ProtocolSocketOptions();
             //Set dos protection to look if theres more than 10 packets every 100 milliseconds
             socketOptions.DOSProtection = new DOSProtection(10,100);
-
+            
+            //Declare what endpoint to listen on
+            EndPoint listenEndPoint = new IPAddress(IPAddress.Any, 9090);
+            
+            //Declare maximum size of connection queue (Max allowed connection to wait to get connected)
+            int maxConnectQueue = 10;
+            
             //Declare server options
-            ProtocolServerOptions serverOptions = new ProtocolServerOptions(socketOptions);
-            serverOptions.ListenEndPoint = new IPEndPoint(IPAddress.Any, 9090);
+            ProtocolServerOptions serverOptions = new ProtocolServerOptions(socketOptions, listenEndPoint, maxConnectQueue);
+            //Declare server socket
             ProtocolServer server = new ProtocolServer(serverOptions);
 
             //if dos was detected fire this event
