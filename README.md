@@ -3,7 +3,7 @@ A very simple lightweight and fast tcp socket library that handles message frami
 
 Simple example on how to use:
 
-```csharp
+```c#
             //Declare socket options to use for both server and client
             //The server will use these options for the connected clients by default
             ProtocolSocketOptions socketOptions = new ProtocolSocketOptions();
@@ -39,7 +39,7 @@ Simple example on how to use:
             };
 
             //Start server
-            server.Start();
+            server.Listen();
 
             ProtocolSocket.ProtocolSocket sock = new ProtocolSocket.ProtocolSocket(socketOptions);
             sock.Connect("127.0.0.1", 9090);
