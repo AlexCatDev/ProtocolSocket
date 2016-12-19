@@ -5,6 +5,7 @@ Simple example on how to use:
 
 ```csharp
             //Declare socket options to use for both server and client
+            //The server will use these options for the connected clients by default
             ProtocolSocketOptions socketOptions = new ProtocolSocketOptions();
             //Set dos protection to look if theres more than 10 packets every 100 milliseconds
             socketOptions.DOSProtection = new DOSProtection(10,100);
@@ -16,7 +17,9 @@ Simple example on how to use:
             int maxConnectQueue = 10;
             
             //Declare server options
-            ProtocolServerOptions serverOptions = new ProtocolServerOptions(socketOptions, listenEndPoint, maxConnectQueue);
+            ProtocolServerOptions serverOptions = new ProtocolServerOptions(socketOptions, 
+            listenEndPoint, maxConnectQueue);
+            
             //Declare server socket
             ProtocolServer server = new ProtocolServer(serverOptions);
 
