@@ -6,12 +6,13 @@ Simple example on how to use:
 ```csharp
             //Declare socket options to use for both server and client
             ProtocolSocketOptions socketOptions = new ProtocolSocketOptions();
-            //Set dos protection to allow up to 10 packets every 100 milliseconds
+            //Set dos protection to look if theres more than 10 packets every 100 milliseconds
             socketOptions.DOSProtection = new DOSProtection(10,100);
 
             //Declare server options
             ProtocolServerOptions serverOptions = new ProtocolServerOptions(socketOptions);
-            ProtocolServer server = new ProtocolServer(9090, serverOptions);
+            serverOptions.ListenEndPoint = new IPEndPoint(IPAddress.Any, 9090);
+            ProtocolServer server = new ProtocolServer(serverOptions);
 
             //if dos was detected fire this event
             server.DOSDetected += (s) => {
