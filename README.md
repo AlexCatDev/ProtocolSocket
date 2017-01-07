@@ -1,5 +1,5 @@
 # ProtocolSocket
-A very simple lightweight and fast tcp socket library that handles message framing and has optional dos protection.
+A very simple tcp networking library that handles message framing and has optional dos protection.
 
 Simple example on how to use:
 
