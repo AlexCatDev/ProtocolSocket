@@ -9,21 +9,21 @@ namespace ProtocolSocket
 {
     public class ProtocolSocket : IDisposable
     {
-        //The maximum size of a single receive.
-        public const int BUFFER_SIZE = 8192;
         //The size of the size header.
         public const int SIZE_BUFFER_LENGTH = 4;
 
         public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
-        public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception message, bool connected);
         public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int bytesReceived, int bytesToReceive);
         public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
+        public delegate void ConnectionEstablishedEventHandler(ProtocolSocket sender);
+        public delegate void ConnectionErrorEventHandler(ProtocolSocket sender, Exception exception);
 
-        public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
+        public event ConnectionEstablishedEventHandler ConnectionEstablished;
+        public event ConnectionErrorEventHandler ConnectionError;
         public event PacketReceivedEventHandler PacketReceived;
-        public event ClientStateChangedEventHandler ClientStateChanged;
         public event DOSDetectedEventHandler DOSDetected;
+        public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
         public event SendProgressChangedEventHandler SendProgressChanged;
 
         public object UserToken { get; set; }
@@ -43,17 +43,12 @@ namespace ProtocolSocket
 
         int receiveRate = 0;
 
-        public ProtocolSocket(Socket socket, ProtocolSocketOptions socketOptions)
-        {
-            if (socket != null) {
-                this.socket = socket;
-                SocketOptions = socketOptions;
-                RemoteEndPoint = socket.RemoteEndPoint;
+        public ProtocolSocket(Socket socket, ProtocolSocketOptions socketOptions) {
+            this.socket = socket;
+            SocketOptions = socketOptions;
+            RemoteEndPoint = socket.RemoteEndPoint;
 
-                Setup();
-            } else {
-                throw new InvalidOperationException("Socket is null");
-            }
+            Setup();
         }
 
         public ProtocolSocket(ProtocolSocketOptions socketOptions)
@@ -75,22 +70,28 @@ namespace ProtocolSocket
 
         public void Start()
         {
-            if (!Running) {
-                Running = true;
-                ClientStateChanged?.Invoke(this, null, Running);
-                stopWatch = Stopwatch.StartNew();
+            if (socket != null && SocketOptions != null) {
+                if (!Running) {
+                    Running = true;
+                    if(socket.Connected)
+                    ConnectionEstablished?.Invoke(this);
+                    stopWatch = Stopwatch.StartNew();
 
-                BeginRead();
-
-            } else if (Running) {
-                throw new InvalidOperationException("Client already running");
+                    BeginRead();
+                }
+                else if (Running) {
+                    throw new InvalidOperationException("Client is already running");
+                }
+            }
+            else {
+                throw new InvalidOperationException("Socket or SocketOptions can't be null");
             }
         }
 
         private void InitBuffer()
         {
             //Create a new instance of a byte array based on the buffer size
-            buffer = new byte[BUFFER_SIZE];
+            buffer = new byte[SocketOptions.ReceiveBufferSize];
         }
 
         public void Disconnect(bool reuseSocket)
@@ -168,7 +169,7 @@ namespace ProtocolSocket
 
                 /*Get the initialize size we will read
                  * If its not more than the buffer size, we'll just use the full length*/
-                var initialSize = payloadSize > BUFFER_SIZE ? BUFFER_SIZE :
+                var initialSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
                     payloadSize;
 
                 //Initialize a new MemStream to receive chunks of the payload
@@ -206,7 +207,7 @@ namespace ProtocolSocket
                 //If there is more data to receive, keep the loop going.
                 if (payloadSize > 0) {
                     //See how much data we need to receive like the initial receive.
-                    int receiveSize = payloadSize > BUFFER_SIZE ? BUFFER_SIZE :
+                    int receiveSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
                         payloadSize;
                     socket.BeginReceive(buffer, 0, receiveSize, 0,
                         ReceivePayloadCallBack, null);
@@ -253,17 +254,15 @@ namespace ProtocolSocket
         {
             Running = false;
             socket.Disconnect(reuseSocket);
-            if (ex != null)
-                ClientStateChanged?.Invoke(this, ex, Running);
-            else
-                ClientStateChanged?.Invoke(this, new Exception("None"), Running);
+            ConnectionError?.Invoke(this, ex);
         }
 
         public void UnsubscribeEvents()
         {
             PacketReceived = null;
             DOSDetected = null;
-            ClientStateChanged = null;
+            ConnectionEstablished = null;
+            ConnectionError = null;
             SendProgressChanged = null;
             ReceiveProgressChanged = null;
         }

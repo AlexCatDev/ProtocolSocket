@@ -18,8 +18,12 @@ namespace ProtocolSocket
         public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception message, bool connected);
         public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int received, int bytesToReceive);
         public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
+        public delegate void ConnectionEstablishedEventHandler(ProtocolSocket sender);
+        public delegate void ConnectionErrorEventHandler(ProtocolSocket sender, Exception exception);
 
         //Client events
+        public event ConnectionEstablishedEventHandler ConnectionEstablished;
+        public event ConnectionErrorEventHandler ConnectionError;
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
         public event PacketReceivedEventHandler PacketReceived;
         public event ClientStateChangedEventHandler ClientStateChanged;
@@ -88,7 +92,8 @@ namespace ProtocolSocket
                 accepted.NoDelay = true;
                 ProtocolSocket protocolSocket = new ProtocolSocket(accepted, ServerSocketOptions.ProtocolSocketOptions);
 
-                protocolSocket.ClientStateChanged += ProtocolSocket_ClientStateChanged;
+                protocolSocket.ConnectionError += ProtocolSocket_ConnectionError;
+                protocolSocket.ConnectionEstablished += ProtocolSocket_ConnectionEstablished;
                 protocolSocket.PacketReceived += ProtocolSocket_PacketReceived;
                 protocolSocket.ReceiveProgressChanged += ProtocolSocket_ReceiveProgressChanged;
                 protocolSocket.SendProgressChanged += ProtocolSocket_SendProgressChanged;
@@ -98,6 +103,20 @@ namespace ProtocolSocket
                 listeningSocket.BeginAccept(AcceptCallBack, null);
             } catch {
                 //MessageBox.Show(ex.Message + " \n\n [" + ex.StackTrace + "]");
+            }
+        }
+
+        private void ProtocolSocket_ConnectionEstablished(ProtocolSocket sender) {
+            lock (syncLock) {
+                connectedClients.Add(sender);
+                ConnectionEstablished?.Invoke(sender);
+            }
+        }
+
+        private void ProtocolSocket_ConnectionError(ProtocolSocket sender, Exception exception) {
+            lock(syncLock) {
+                connectedClients.Remove(sender);
+                ConnectionError?.Invoke(sender, exception);
             }
         }
 
