@@ -26,7 +26,10 @@ namespace ProtocolSocket
         public ProtocolSocketOptions(int receiveBufferSize = 1024*8)
         {
             MaxPacketSize = ushort.MaxValue - 4;
-            ReceiveBufferSize = receiveBufferSize;
+            if (receiveBufferSize > 4)
+                ReceiveBufferSize = receiveBufferSize;
+            else
+                ReceiveBufferSize = 1024 * 8;
             AllowZeroLengthPackets = false;
         }
 
