@@ -8,7 +8,8 @@ Simple example on how to use:
             //The server will use these options for the connected clients by default
             ProtocolSocketOptions socketOptions = new ProtocolSocketOptions();
             //Set dos protection to look if theres more than 10 packets every 100 milliseconds
-            socketOptions.DOSProtection = new DOSProtection(10,100);
+            DOSProtection dosProtection = new DOSProtection(10,100);
+            SetDOSProtection(dosProtection);
             
             //Declare what endpoint to listen on
             EndPoint listenEndPoint = new IPAddress(IPAddress.Any, 9090);
@@ -34,6 +35,15 @@ Simple example on how to use:
                 Console.WriteLine("Client " + s.RemoteEndPoint + " changed state connected? " + 
                 connected + " message " + e?.Message);
             };
+            
+            server.ConnectionError(s, e) => {
+                 Console.WriteLine("Client " + s.RemoteEndPoint + " disconnected");
+            };
+            
+            server.ConnectionEstablished += (sender) => {
+                Console.WriteLine("Client " + s.RemoteEndPoint + " connected");
+            };
+            
             server.PacketReceived += (s, e) => {
                 Console.WriteLine("Received " + e.Length + " from " + s.RemoteEndPoint);
             };
