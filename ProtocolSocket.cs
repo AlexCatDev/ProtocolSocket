@@ -162,21 +162,23 @@ namespace ProtocolSocket
                         if (SocketOptions.AllowZeroLengthPackets) {
                             BeginRead();
                             PacketReceived?.Invoke(this, new PacketReceivedEventArgs(new byte[0]));
-                        } else
+                        }
+                        else
                             throw new ProtocolViolationException("Zero-length packets are now set to be allowed!");
                     }
+                    else {
+                        /*Get the initialize size we will read
+                         * If its not more than the buffer size, we'll just use the full length*/
+                        var initialSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
+                            payloadSize;
 
-                    /*Get the initialize size we will read
-                     * If its not more than the buffer size, we'll just use the full length*/
-                    var initialSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
-                        payloadSize;
+                        //Initialize a new MemStream to receive chunks of the payload
+                        this.payloadStream = new MemoryStream();
 
-                    //Initialize a new MemStream to receive chunks of the payload
-                    this.payloadStream = new MemoryStream();
-
-                    //Start the receive loop of the payload
-                    socket.BeginReceive(buffer, 0, initialSize, 0,
-                        ReceivePayloadCallBack, null);
+                        //Start the receive loop of the payload
+                        socket.BeginReceive(buffer, 0, initialSize, 0,
+                            ReceivePayloadCallBack, null);
+                    }
                 }
             } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
                 HandleDisconnect(ex, false);
@@ -250,40 +252,52 @@ namespace ProtocolSocket
             }
         }
 
-        private void HandleDisconnect(Exception ex, bool reuseSocket)
+        public void SendPacket(byte[] packet)
         {
+            lock (syncLock) {
+                socket.Send(BitConverter.GetBytes(packet.Length));
+                socket.Send(packet);
+                SendProgressChanged?.Invoke(this, packet.Length + sizeof(int));
+            }
+        }
+
+        public void SendPacketCombined(byte[] packet) {
+            byte[] lengthData = BitConverter.GetBytes(packet.Length);
+            byte[] combinedPacket = Combine(lengthData, packet);
+            socket.Send(combinedPacket);
+            SendProgressChanged?.Invoke(this, combinedPacket.Length);
+        }
+
+        public void SendPacketAsync(byte[] packet) {
+            byte[] lengthData = BitConverter.GetBytes(packet.Length);
+            byte[] combinedPacket = Combine(lengthData, packet);
+            socket.BeginSend(combinedPacket, 0, combinedPacket.Length, 0, SendPacketCallBack, null);
+        }
+
+        private void SendPacketCallBack(IAsyncResult ar) {
+            int send = socket.EndSend(ar);
+
+            SendProgressChanged?.Invoke(this, send);
+        }
+
+        private void HandleDisconnect(Exception ex, bool reuseSocket) {
             Running = false;
             socket.Disconnect(reuseSocket);
             ConnectionError?.Invoke(this, ex);
         }
 
-        public void UnsubscribeEvents()
+        public void Close()
         {
+            socket.Close();
+        }
+
+        public void UnsubscribeEvents() {
             PacketReceived = null;
             DOSDetected = null;
             ConnectionEstablished = null;
             ConnectionError = null;
             SendProgressChanged = null;
             ReceiveProgressChanged = null;
-        }
-
-        private void SendData(byte[] data)
-        {
-            lock (syncLock) {
-                socket.Send(BitConverter.GetBytes(data.Length));
-                socket.Send(data);
-                SendProgressChanged?.Invoke(this, data.Length + SIZE_BUFFER_LENGTH);
-            }
-        }
-
-        public void SendPacket(byte[] bytes)
-        {
-            SendData(bytes);
-        }
-
-        public void Close()
-        {
-            socket.Close();
         }
 
         public void Dispose()
@@ -296,6 +310,13 @@ namespace ProtocolSocket
             payloadStream?.Dispose();
 
             UnsubscribeEvents();
+        }
+
+        public static byte[] Combine(byte[] first, byte[] second) {
+            byte[] ret = new byte[first.Length + second.Length];
+            Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+            Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
+            return ret;
         }
     }
 }
