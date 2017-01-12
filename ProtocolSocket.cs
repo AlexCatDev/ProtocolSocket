@@ -76,7 +76,6 @@ namespace ProtocolSocket
             if (socket != null && SocketOptions != null) {
                 if (!Running) {
                     Running = true;
-                    if(socket.Connected)
                     ConnectionEstablished?.Invoke(this);
                     stopWatch = Stopwatch.StartNew();
 
@@ -102,6 +101,7 @@ namespace ProtocolSocket
             HandleDisconnect(new Exception("Manual disconnect"), reuseSocket);
         }
 
+        [Obsolete("Please use ConnectAsync() method instead")]
         public void Connect(string IP, int Port)
         {
             try {
@@ -110,6 +110,22 @@ namespace ProtocolSocket
             } catch {
                 throw;
             }
+        }
+
+        public void ConnectAsync(string host, int port) {
+            socket.BeginConnect(host, port, ConnectCallBack, null);
+        }
+
+        public void ConnectAsync(IPEndPoint connectEndPoint) {
+            socket.BeginConnect(connectEndPoint, ConnectCallBack, null);
+        }
+
+        private void ConnectCallBack(IAsyncResult ar) {
+            try {
+                socket.EndConnect(ar);
+                Start();
+            }
+            catch(Exception ex) { ConnectionError?.Invoke(this, ex); }
         }
 
         private void BeginRead()
