@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 
 namespace ProtocolSocket
@@ -39,8 +40,15 @@ namespace ProtocolSocket
             }
         }
 
+        public List<string> BlockedHosts {
+            get {
+                return blockedHosts;
+            }
+        }
+
         Socket listeningSocket;
         List<ProtocolSocket> connectedClients;
+        List<string> blockedHosts;
         object syncLock;
 
         public ProtocolServer(ProtocolServerOptions serverSocketOptions)
@@ -49,7 +57,7 @@ namespace ProtocolSocket
             syncLock = new object();
             ServerSocketOptions = serverSocketOptions;
             connectedClients = new List<ProtocolSocket>();
-
+            blockedHosts = new List<string>();
         }
 
         public void Listen()
@@ -89,6 +97,10 @@ namespace ProtocolSocket
         {
             try {
                 Socket accepted = listeningSocket.EndAccept(iar);
+                if (blockedHosts.Contains((accepted.RemoteEndPoint as IPEndPoint).Address.ToString()){
+                    accepted.Disconnect(false);
+                    return;
+                }
                 accepted.NoDelay = true;
                 ProtocolSocket protocolSocket = new ProtocolSocket(accepted, ServerSocketOptions.ProtocolSocketOptions);
 
@@ -132,18 +144,6 @@ namespace ProtocolSocket
             }
         }
 
-        private void ProtocolSocket_ClientStateChanged(ProtocolSocket sender, Exception Message, bool Connected)
-        {
-            lock (syncLock) {
-                if (Connected) {
-                    connectedClients.Add(sender);
-                } else {
-                    connectedClients.Remove(sender);
-                }
-                ClientStateChanged?.Invoke(sender, Message, Connected);
-            }
-        }
-
         private void ProtocolSocket_SendProgressChanged(ProtocolSocket sender, int Send)
         {
             SendProgressChanged?.Invoke(sender, Send);
@@ -162,6 +162,15 @@ namespace ProtocolSocket
         private void ProtocolSocket_PacketReceived(ProtocolSocket sender, PacketReceivedEventArgs PacketReceivedEventArgs)
         {
             PacketReceived?.Invoke(sender, PacketReceivedEventArgs);
+        }
+
+        /// <summary>
+        /// Ignores any connection made from specified host
+        /// </summary>
+        /// <param name="host">Host ip to filter</param>
+        public void AddHostFilter(string host) {
+            if (!blockedHosts.Contains(host))
+                blockedHosts.Add(host);
         }
 
         public void Dispose()

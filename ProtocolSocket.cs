@@ -116,8 +116,8 @@ namespace ProtocolSocket
             socket.BeginConnect(host, port, ConnectCallBack, null);
         }
 
-        public void ConnectAsync(IPEndPoint connectEndPoint) {
-            socket.BeginConnect(connectEndPoint, ConnectCallBack, null);
+        public void ConnectAsync(EndPoint remoteEP) {
+            socket.BeginConnect(remoteEP, ConnectCallBack, null);
         }
 
         private void ConnectCallBack(IAsyncResult ar) {
