@@ -224,7 +224,7 @@ namespace ProtocolSocket
 
                 CheckFlood();
 
-                if (useBuffer) {
+                if (!useBuffer) {
                     //Subtract what we read from the payload size.
                     payloadSize -= read;
 
