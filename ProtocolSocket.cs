@@ -40,6 +40,7 @@ namespace ProtocolSocket
         private int totalRead;
         private int payloadSize;
         private int totalPayloadSize;
+        private bool useBuffer;
         private MemoryStream payloadStream;
 
         private int receiveRate;
@@ -188,12 +189,21 @@ namespace ProtocolSocket
                         var initialSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
                             payloadSize;
 
-                        //Initialize a new MemStream to receive chunks of the payload
-                        this.payloadStream = new MemoryStream();
+                        if (initialSize < SocketOptions.ReceiveBufferSize)
+                            useBuffer = true;
 
-                        //Start the receive loop of the payload
-                        socket.BeginReceive(buffer, 0, initialSize, 0,
-                            ReceivePayloadCallBack, null);
+                        //Initialize a new MemStream to receive chunks of the payload
+                        if (!useBuffer) {
+                            payloadStream = new MemoryStream();
+
+                            //Start the receive loop of the payload
+                            socket.BeginReceive(buffer, 0, initialSize, 0,
+                                ReceivePayloadCallBack, null);
+                        }
+                        else {
+                            socket.BeginReceive(buffer, totalRead, totalPayloadSize - totalRead, 
+                                0, ReceivePayloadCallBack, null);
+                        }
                     }
                 }
             } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
@@ -214,36 +224,54 @@ namespace ProtocolSocket
 
                 CheckFlood();
 
-                //Subtract what we read from the payload size.
-                payloadSize -= read;
+                if (useBuffer) {
+                    //Subtract what we read from the payload size.
+                    payloadSize -= read;
 
-                //Write the data to the payload stream.
-                payloadStream.Write(buffer, 0, read);
+                    //Write the data to the payload stream.
+                    payloadStream.Write(buffer, 0, read);
 
-                ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, totalPayloadSize);
+                    ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, totalPayloadSize);
 
-                //If there is more data to receive, keep the loop going.
-                if (payloadSize > 0) {
-                    //See how much data we need to receive like the initial receive.
-                    int receiveSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
-                        payloadSize;
-                    socket.BeginReceive(buffer, 0, receiveSize, 0,
-                        ReceivePayloadCallBack, null);
-                } else //If we received everything
-                  {
-                    //Close the payload stream
-                    payloadStream.Close();
+                    //If there is more data to receive, keep the loop going.
+                    if (payloadSize > 0) {
+                        //See how much data we need to receive like the initial receive.
+                        int receiveSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
+                            payloadSize;
+                        socket.BeginReceive(buffer, 0, receiveSize, 0,
+                            ReceivePayloadCallBack, null);
+                    }
+                    else //If we received everything
+                    {
+                        ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, totalPayloadSize);
 
-                    //Get the full payload
-                    byte[] payload = payloadStream.ToArray();
+                        //Close the payload stream
+                        payloadStream.Close();
 
-                    //Dispose the stream
-                    payloadStream = null;
+                        //Get the full payload
+                        byte[] payload = payloadStream.ToArray();
 
-                    //Start reading
-                    BeginRead();
-                    //Call the event method
-                    PacketReceived?.Invoke(this, new PacketReceivedEventArgs(payload));
+                        //Dispose the stream
+                        payloadStream = null;
+
+                        //Start reading
+                        BeginRead();
+                        //Call the event method
+                        PacketReceived?.Invoke(this, new PacketReceivedEventArgs(payload));
+                    }
+                }
+                else {
+                    if(totalRead < totalPayloadSize) {
+                        socket.BeginReceive(buffer, totalRead, totalPayloadSize - totalRead, 0,
+                            ReceivePayloadCallBack, null);
+
+                        ReceiveProgressChanged?.Invoke(this, totalRead, totalPayloadSize);
+                    }
+                    else {
+                        ReceiveProgressChanged?.Invoke(this, totalRead, totalPayloadSize);
+                        PacketReceived?.Invoke(this, new PacketReceivedEventArgs(buffer));
+                        BeginRead();
+                    }
                 }
             } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
                 HandleDisconnect(ex, false);

@@ -34,15 +34,15 @@ namespace ProtocolSocket
         public bool Listening { get; private set; }
         public ProtocolServerOptions ServerSocketOptions { get; private set; }
 
-        public List<ProtocolSocket> ConnectedClients {
+        public IList<ProtocolSocket> ConnectedClients {
             get {
-                lock (syncLock) { return connectedClients; }
+                lock (syncLock) { return connectedClients.AsReadOnly(); }
             }
         }
 
-        public List<string> BlockedHosts {
+        public IList<string> BlockedHosts {
             get {
-                return blockedHosts;
+                return blockedHosts.AsReadOnly();
             }
         }
 
