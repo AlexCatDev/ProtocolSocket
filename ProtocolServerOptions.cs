@@ -4,13 +4,13 @@ namespace ProtocolSocket
 {
     public class ProtocolServerOptions
     {
-        public ProtocolSocketOptions ProtocolSocketOptions { get; set; }
+        public ProtocolClientOptions ClientOptions { get; set; }
         public int MaxConnectionQueue { get; set; }
         public EndPoint ListenEndPoint { get; set; }
 
-        public ProtocolServerOptions(ProtocolSocketOptions protocolSocketOptions, EndPoint listenEndPoint, int maxConnectionQueue = 20)
+        public ProtocolServerOptions(ProtocolClientOptions clientOptions, EndPoint listenEndPoint, int maxConnectionQueue = 20)
         {
-            ProtocolSocketOptions = protocolSocketOptions;
+            ClientOptions = clientOptions;
             MaxConnectionQueue = maxConnectionQueue;
             ListenEndPoint = listenEndPoint;
         }

@@ -8,17 +8,17 @@ using System.Threading;
 
 namespace ProtocolSocket
 {
-    public class ProtocolSocket : IDisposable
+    public class ProtocolClient : IDisposable
     {
         //The size of the size header.
         public const int SIZE_HEADER = sizeof(int);
 
-        public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
-        public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
-        public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int bytesReceived, int bytesToReceive);
-        public delegate void PacketSendEventHandler(ProtocolSocket sender, int bytesSend);
-        public delegate void ConnectionEstablishedEventHandler(ProtocolSocket sender);
-        public delegate void ConnectionErrorEventHandler(ProtocolSocket sender, Exception exception);
+        public delegate void PacketReceivedEventHandler(ProtocolClient sender, PacketReceivedEventArgs packetReceivedEventArgs);
+        public delegate void DOSDetectedEventHandler(ProtocolClient sender);
+        public delegate void ReceiveProgressChangedEventHandler(ProtocolClient sender, int bytesReceived, int bytesToReceive);
+        public delegate void PacketSendEventHandler(ProtocolClient sender, int bytesSend);
+        public delegate void ConnectionEstablishedEventHandler(ProtocolClient sender);
+        public delegate void ConnectionErrorEventHandler(ProtocolClient sender, Exception exception);
 
         public event ConnectionEstablishedEventHandler ConnectionEstablished;
         public event ConnectionErrorEventHandler ConnectionError;
@@ -31,7 +31,7 @@ namespace ProtocolSocket
         public bool Running { get; private set; }
 
         public EndPoint RemoteEndPoint { get; private set; }
-        public ProtocolSocketOptions SocketOptions { get; private set; }
+        public ProtocolClientOptions ClientOptions { get; private set; }
 
         private Socket socket;
         private Stopwatch stopWatch;
@@ -45,16 +45,16 @@ namespace ProtocolSocket
 
         private int receiveRate;
 
-        public ProtocolSocket(Socket socket, ProtocolSocketOptions socketOptions) {
+        public ProtocolClient(Socket socket, ProtocolClientOptions clientOptions) {
             this.socket = socket;
-            SocketOptions = socketOptions;
+            ClientOptions = clientOptions;
             RemoteEndPoint = socket.RemoteEndPoint;
 
             Setup();
         }
 
-        public ProtocolSocket(ProtocolSocketOptions socketOptions) {
-            SocketOptions = socketOptions;
+        public ProtocolClient(ProtocolClientOptions clientOptions) {
+            ClientOptions = clientOptions;
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.NoDelay = true;
 
@@ -66,11 +66,11 @@ namespace ProtocolSocket
             sendQueue = new Queue<byte[]>();
             receiveRate = 0;
             dataRead = 0;
-            buffer = new byte[SocketOptions.BufferSize];
+            buffer = new byte[ClientOptions.BufferSize];
         }
 
         public void Start() {
-            if (socket != null && SocketOptions != null) {
+            if (socket != null && ClientOptions != null) {
                 if (!Running) {
                     Running = true;
                     ConnectionEstablished?.Invoke(this);
@@ -154,8 +154,8 @@ namespace ProtocolSocket
                     //Get the converted int value for the payload size from the received data
                     dataExpected = BitConverter.ToInt32(buffer, 0);
 
-                    if (dataExpected > SocketOptions.MaxPacketSize)
-                        throw new ProtocolViolationException($"Payload size exeeded whats max allowed {dataExpected} > {SocketOptions.MaxPacketSize}");
+                    if (dataExpected > ClientOptions.MaxPacketSize)
+                        throw new ProtocolViolationException($"Payload size exeeded whats max allowed {dataExpected} > {ClientOptions.MaxPacketSize}");
                     else if (dataExpected == 0)
                             throw new ProtocolViolationException("Data with no length is not allowed");
                     else {
@@ -248,8 +248,8 @@ namespace ProtocolSocket
                 //If there is more data to receive, keep the loop going.
                 if (dataExpected > 0) {
                     //See how much data we need to receive like the initial receive.
-                    int receiveSize = dataExpected > SocketOptions.BufferSize ?
-                        SocketOptions.BufferSize : dataExpected;
+                    int receiveSize = dataExpected > ClientOptions.BufferSize ?
+                        ClientOptions.BufferSize : dataExpected;
 
                     socket.BeginReceive(buffer, 0, receiveSize, 0,
                         ReceivePayloadStreamCallback, null);
@@ -280,14 +280,14 @@ namespace ProtocolSocket
         }
 
         private void CheckFlood() {
-            if (SocketOptions.DOSProtection != null) {
+            if (ClientOptions.DOSProtection != null) {
                 receiveRate++;
 
                 //Time to check for receive rate
-                if (stopWatch.ElapsedMilliseconds >= SocketOptions.DOSProtection.Delta) {
+                if (stopWatch.ElapsedMilliseconds >= ClientOptions.DOSProtection.Delta) {
 
                     //Check if we exeeded the maximum receive rate
-                    if (receiveRate > SocketOptions.DOSProtection.MaxPackets)
+                    if (receiveRate > ClientOptions.DOSProtection.MaxPackets)
                         DOSDetected?.Invoke(this);
 
                     receiveRate = 0;
@@ -334,7 +334,7 @@ namespace ProtocolSocket
             Close();
             buffer = null;
             RemoteEndPoint = null;
-            SocketOptions = null;
+            ClientOptions = null;
             payloadStream?.Dispose();
             sendQueue.Clear();
 

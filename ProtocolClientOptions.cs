@@ -2,7 +2,7 @@
 
 namespace ProtocolSocket
 {
-    public class ProtocolSocketOptions
+    public class ProtocolClientOptions
     {
 
         public DOSProtection DOSProtection { get; set; }
@@ -19,7 +19,7 @@ namespace ProtocolSocket
         /// 
         /// </summary>
         /// <param name="receiveBufferSize">The amount of bytes to buffer before being written to the stream</param>
-        public ProtocolSocketOptions(int receiveBufferSize = 1024*8)
+        public ProtocolClientOptions(int receiveBufferSize = 1024*8)
         {
             MaxPacketSize = ushort.MaxValue - 4;
             if (receiveBufferSize > 4)
