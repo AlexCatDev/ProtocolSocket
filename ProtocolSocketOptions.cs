@@ -9,15 +9,11 @@ namespace ProtocolSocket
         /// <summary>
         /// The amount of bytes to buffer before being written to the stream
         /// </summary>
-        public int ReceiveBufferSize { get; private set; }
+        public int BufferSize { get; private set; }
         /// <summary>
         /// The amount of bytes max allowed to be received
         /// </summary>
         public int MaxPacketSize { get; set; }
-        /// <summary>
-        /// Check if packets with a length of zero is a allowed
-        /// </summary>
-        public bool AllowZeroLengthPackets { get; set; }
 
         /// <summary>
         /// 
@@ -27,10 +23,9 @@ namespace ProtocolSocket
         {
             MaxPacketSize = ushort.MaxValue - 4;
             if (receiveBufferSize > 4)
-                ReceiveBufferSize = receiveBufferSize;
+                BufferSize = receiveBufferSize;
             else
-                ReceiveBufferSize = 1024 * 8;
-            AllowZeroLengthPackets = false;
+                BufferSize = 1024 * 8;
         }
 
         /// <summary>

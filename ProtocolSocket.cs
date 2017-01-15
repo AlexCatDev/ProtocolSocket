@@ -10,7 +10,7 @@ namespace ProtocolSocket
     public class ProtocolSocket : IDisposable
     {
         //The size of the size header.
-        public const int SIZE_BUFFER_LENGTH = 4;
+        public const int SIZE_HEADER = sizeof(int);
 
         public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
@@ -37,10 +37,9 @@ namespace ProtocolSocket
         private object syncLock;
 
         private byte[] buffer;
-        private int totalRead;
-        private int payloadSize;
-        private int totalPayloadSize;
-        private bool useBuffer;
+        private int dataRead;
+        private int dataRemaining;
+        private int dataExpected;
         private MemoryStream payloadStream;
 
         private int receiveRate;
@@ -64,12 +63,10 @@ namespace ProtocolSocket
 
         private void Setup()
         {
-            Running = false;
             syncLock = new object();
             receiveRate = 0;
-            totalRead = 0;
-
-            InitBuffer();
+            dataRead = 0;
+            buffer = new byte[SocketOptions.BufferSize];
         }
 
         public void Start()
@@ -80,7 +77,11 @@ namespace ProtocolSocket
                     ConnectionEstablished?.Invoke(this);
                     stopWatch = Stopwatch.StartNew();
 
-                    BeginRead();
+                    try {
+                        BeginReceive();
+                    } catch(Exception ex) {
+                        ConnectionError?.Invoke(this, ex);
+                    }
                 }
                 else if (Running) {
                     throw new InvalidOperationException("Client is already running");
@@ -89,12 +90,6 @@ namespace ProtocolSocket
             else {
                 throw new InvalidOperationException("Socket or SocketOptions can't be null");
             }
-        }
-
-        private void InitBuffer()
-        {
-            //Create a new instance of a byte array based on the buffer size
-            buffer = new byte[SocketOptions.ReceiveBufferSize];
         }
 
         public void Disconnect(bool reuseSocket)
@@ -129,151 +124,173 @@ namespace ProtocolSocket
             catch(Exception ex) { ConnectionError?.Invoke(this, ex); }
         }
 
-        private void BeginRead()
+        private void BeginReceive()
         {
-            try {
-                //Attempt to receive the buffer size
-                socket.BeginReceive(buffer, totalRead, SIZE_BUFFER_LENGTH - totalRead, 0,
-                    ReadSizeCallBack, null);
-            } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
-                HandleDisconnect(ex, false);
-            }
+            //First we begin receive the size header
+            socket.BeginReceive(buffer, dataRead, SIZE_HEADER - dataRead, 0,
+                ReceiveSizeCallback, null);
         }
 
         /// <summary>
         /// This callback is for handling the receive of the size header.
         /// </summary>
         /// <param name="ar"></param>
-        private void ReadSizeCallBack(IAsyncResult ar)
+        private void ReceiveSizeCallback(IAsyncResult ar)
         {
             try {
                 //Attempt to end the read
                 var read = socket.EndReceive(ar);
-                //Total data read
-                totalRead += read;
 
                 /*An exception should be thrown on EndReceive if the connection was lost.
                 However, that is not always the case, so we check if read is zero or less.
                 Which means disconnection.
                 If there is a disconnection, we throw an exception*/
-                if (read <= 0) {
+                if (read <= 0)
                     throw new SocketException((int)SocketError.ConnectionAborted);
-                }
+
+                //increment the total data read
+                dataRead += read;
 
                 //If we didn't receive the full buffer size, something is lagging behind.
-                if (totalRead < SIZE_BUFFER_LENGTH) {
-                    //Begin read again
-                    BeginRead();
+                if (dataRead < SIZE_HEADER) {
+                    //Begin receive again
+                    BeginReceive();
 
-                    //If we did receive the full buffer size, then begin reading the payload
+                    //If we did receive the full header, then begin reading the payload
                 } else {
-                    totalRead = 0;
+                    dataRead = 0;
 
                     //Get the converted int value for the payload size from the received data
-                    payloadSize = BitConverter.ToInt32(buffer, 0);
-                    totalPayloadSize = payloadSize;
+                    dataExpected = BitConverter.ToInt32(buffer, 0);
+                    dataRemaining = dataExpected;
 
-                    if (payloadSize > SocketOptions.MaxPacketSize)
-                        throw new ProtocolViolationException($"Payload size exeeded max allowed [{payloadSize} > {SocketOptions.MaxPacketSize}]");
-                    else if (payloadSize == 0) {
-                        if (SocketOptions.AllowZeroLengthPackets) {
-                            BeginRead();
-                            PacketReceived?.Invoke(this, new PacketReceivedEventArgs(new byte[0]));
-                        }
-                        else
-                            throw new ProtocolViolationException("Zero-length packets are now set to be allowed!");
-                    }
+                    if (dataExpected > SocketOptions.MaxPacketSize)
+                        throw new ProtocolViolationException($"Payload size exeeded whats max allowed {dataExpected} > {SocketOptions.MaxPacketSize}");
+                    else if (dataExpected == 0)
+                            throw new ProtocolViolationException("Data with no length is not allowed");
                     else {
-                        /*Get the initialize size we will read
-                         * If its not more than the buffer size, we'll just use the full length*/
-                        var initialSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
-                            payloadSize;
+                        /*If the expected data size is bigger than what
+                         * we can hold we need to write it to a resizable stream */
+                        if (dataExpected > buffer.Length) {
+                            /*Get the initialize size we will read
+                             * If its not more than the buffer size, we'll just use the full length*/
+                            var initialSize = dataExpected > buffer.Length ? buffer.Length :
+                                dataExpected;
 
-                        if (initialSize < SocketOptions.ReceiveBufferSize)
-                            useBuffer = true;
-
-                        //Initialize a new MemStream to receive chunks of the payload
-                        if (!useBuffer) {
+                            //Initialize a new MemStream to receive chunks of the payload
                             payloadStream = new MemoryStream();
 
                             //Start the receive loop of the payload
                             socket.BeginReceive(buffer, 0, initialSize, 0,
-                                ReceivePayloadCallBack, null);
-                        }
-                        else {
-                            socket.BeginReceive(buffer, totalRead, totalPayloadSize - totalRead, 
-                                0, ReceivePayloadCallBack, null);
+                                ReceivePayloadStreamCallback, null);
+                        } else {
+                            //Else we receive directly into the buffer
+                            socket.BeginReceive(buffer, dataRead, buffer.Length - dataRead, 0,
+                                ReceivePayloadBufferedCallback, null);
                         }
                     }
                 }
-            } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
+            } catch (NullReferenceException) {
+                return;
+            } catch (ObjectDisposedException) {
+                return;
+            } catch (Exception ex) {
                 HandleDisconnect(ex, false);
             }
         }
 
-        private void ReceivePayloadCallBack(IAsyncResult ar)
+        private void ReceivePayloadBufferedCallback(IAsyncResult ar)
         {
             try {
                 //Attempt to finish the async read.
                 var read = socket.EndReceive(ar);
 
                 //Same as above
-                if (read <= 0) {
+                if (read <= 0)
                     throw new SocketException((int)SocketError.ConnectionAborted);
-                }
 
                 CheckFlood();
 
-                if (!useBuffer) {
+                //Increment how much data we have read
+                dataRead += read;
+
+                ReceiveProgressChanged?.Invoke(this, dataRead, dataExpected);
+
+                //If there is more data to receive, keep the loop going.
+                if (dataRead < buffer.Length) {
+                    socket.BeginReceive(buffer, dataRead, buffer.Length - dataRead, 0,
+                                ReceivePayloadBufferedCallback, null);
+
+                    //If we received everything
+                } else {
+
+                    //Reset dataRead for later use
+                    dataRead = 0;
+
+                    //Call the event method
+                    PacketReceived?.Invoke(this, new PacketReceivedEventArgs(buffer));
+
+                    //Start receiving the size again
+                    BeginReceive();
+                }
+            } catch (NullReferenceException) {
+                return;
+            } catch (ObjectDisposedException) {
+                return;
+            } catch (Exception ex) {
+                HandleDisconnect(ex, false);
+            }
+        }
+
+        private void ReceivePayloadStreamCallback(IAsyncResult ar)
+        {
+            try {
+                //Attempt to finish the async read.
+                var read = socket.EndReceive(ar);
+
+                //Same as above
+                if (read <= 0)
+                    throw new SocketException((int)SocketError.ConnectionAborted);
+
+                CheckFlood();
                     //Subtract what we read from the payload size.
-                    payloadSize -= read;
+                    dataRemaining -= read;
 
                     //Write the data to the payload stream.
                     payloadStream.Write(buffer, 0, read);
 
-                    ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, totalPayloadSize);
+                    ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, dataExpected);
 
-                    //If there is more data to receive, keep the loop going.
-                    if (payloadSize > 0) {
-                        //See how much data we need to receive like the initial receive.
-                        int receiveSize = payloadSize > SocketOptions.ReceiveBufferSize ? SocketOptions.ReceiveBufferSize :
-                            payloadSize;
-                        socket.BeginReceive(buffer, 0, receiveSize, 0,
-                            ReceivePayloadCallBack, null);
-                    }
-                    else //If we received everything
-                    {
-                        ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, totalPayloadSize);
+                //If there is more data to receive, keep the loop going.
+                if (dataRemaining > 0) {
+                    //See how much data we need to receive like the initial receive.
+                    int receiveSize = dataRemaining > SocketOptions.BufferSize ? 
+                        SocketOptions.BufferSize : dataRemaining;
 
-                        //Close the payload stream
-                        payloadStream.Close();
+                    socket.BeginReceive(buffer, 0, receiveSize, 0,
+                        ReceivePayloadStreamCallback, null);
+                } else //If we received everything
+                  {
+                    //Close the payload stream
+                    payloadStream.Close();
 
-                        //Get the full payload
-                        byte[] payload = payloadStream.ToArray();
+                    //Get the full payload
+                    byte[] payload = payloadStream.ToArray();
 
-                        //Dispose the stream
-                        payloadStream = null;
+                    //Dispose the stream
+                    payloadStream = null;
 
-                        //Start reading
-                        BeginRead();
-                        //Call the event method
-                        PacketReceived?.Invoke(this, new PacketReceivedEventArgs(payload));
-                    }
+                    //Start receiving size header again
+                    BeginReceive();
+
+                    //Call the event method
+                    PacketReceived?.Invoke(this, new PacketReceivedEventArgs(payload));
                 }
-                else {
-                    if(totalRead < totalPayloadSize) {
-                        socket.BeginReceive(buffer, totalRead, totalPayloadSize - totalRead, 0,
-                            ReceivePayloadCallBack, null);
-
-                        ReceiveProgressChanged?.Invoke(this, totalRead, totalPayloadSize);
-                    }
-                    else {
-                        ReceiveProgressChanged?.Invoke(this, totalRead, totalPayloadSize);
-                        PacketReceived?.Invoke(this, new PacketReceivedEventArgs(buffer));
-                        BeginRead();
-                    }
-                }
-            } catch (NullReferenceException) { return; } catch (ObjectDisposedException) { return; } catch (Exception ex) {
+            } catch (NullReferenceException) {
+                return;
+            } catch (ObjectDisposedException) {
+                return;
+            } catch (Exception ex) {
                 HandleDisconnect(ex, false);
             }
         }
@@ -287,7 +304,7 @@ namespace ProtocolSocket
                 if (stopWatch.ElapsedMilliseconds >= SocketOptions.DOSProtection.Delta) {
 
                     //Check if we exeeded the maximum receive rate
-                    if (receiveRate > SocketOptions.DOSProtection?.MaxPackets)
+                    if (receiveRate > SocketOptions.DOSProtection.MaxPackets)
                         DOSDetected?.Invoke(this);
 
                     receiveRate = 0;
