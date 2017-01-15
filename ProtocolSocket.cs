@@ -295,6 +295,26 @@ namespace ProtocolSocket
             }
         }
 
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, int optionValue)
+        {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, bool optionValue)
+        {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, object optionValue)
+        {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, byte[] optionValue)
+        {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
         private void CheckFlood()
         {
             if (SocketOptions.DOSProtection != null) {
@@ -336,9 +356,13 @@ namespace ProtocolSocket
         }
 
         private void SendPacketCallBack(IAsyncResult ar) {
-            int send = socket.EndSend(ar);
+            try {
+                int send = socket.EndSend(ar);
 
-            SendProgressChanged?.Invoke(this, send);
+                SendProgressChanged?.Invoke(this, send);
+            } catch {
+
+            }
         }
 
         private void HandleDisconnect(Exception ex, bool reuseSocket) {
