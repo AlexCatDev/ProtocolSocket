@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 
 namespace ProtocolSocket
 {
@@ -15,16 +16,16 @@ namespace ProtocolSocket
         public delegate void PacketReceivedEventHandler(ProtocolSocket sender, PacketReceivedEventArgs packetReceivedEventArgs);
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
         public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int bytesReceived, int bytesToReceive);
-        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
+        public delegate void PacketSendEventHandler(ProtocolSocket sender, int bytesSend);
         public delegate void ConnectionEstablishedEventHandler(ProtocolSocket sender);
         public delegate void ConnectionErrorEventHandler(ProtocolSocket sender, Exception exception);
 
         public event ConnectionEstablishedEventHandler ConnectionEstablished;
         public event ConnectionErrorEventHandler ConnectionError;
         public event PacketReceivedEventHandler PacketReceived;
+        public event PacketSendEventHandler PacketSend;
         public event DOSDetectedEventHandler DOSDetected;
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
-        public event SendProgressChangedEventHandler SendProgressChanged;
 
         public object UserToken { get; set; }
         public bool Running { get; private set; }
@@ -39,7 +40,6 @@ namespace ProtocolSocket
 
         private byte[] buffer;
         private int dataRead;
-        private int dataRemaining;
         private int dataExpected;
         private MemoryStream payloadStream;
 
@@ -53,8 +53,7 @@ namespace ProtocolSocket
             Setup();
         }
 
-        public ProtocolSocket(ProtocolSocketOptions socketOptions)
-        {
+        public ProtocolSocket(ProtocolSocketOptions socketOptions) {
             SocketOptions = socketOptions;
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.NoDelay = true;
@@ -62,8 +61,7 @@ namespace ProtocolSocket
             Setup();
         }
 
-        private void Setup()
-        {
+        private void Setup() {
             syncLock = new object();
             sendQueue = new Queue<byte[]>();
             receiveRate = 0;
@@ -71,19 +69,14 @@ namespace ProtocolSocket
             buffer = new byte[SocketOptions.BufferSize];
         }
 
-        public void Start()
-        {
+        public void Start() {
             if (socket != null && SocketOptions != null) {
                 if (!Running) {
                     Running = true;
                     ConnectionEstablished?.Invoke(this);
                     stopWatch = Stopwatch.StartNew();
 
-                    try {
-                        BeginReceive();
-                    } catch(Exception ex) {
-                        ConnectionError?.Invoke(this, ex);
-                    }
+                    BeginReceive();
                 }
                 else if (Running) {
                     throw new InvalidOperationException("Client is already running");
@@ -94,8 +87,7 @@ namespace ProtocolSocket
             }
         }
 
-        public void Disconnect(bool reuseSocket)
-        {
+        public void Disconnect(bool reuseSocket) {
             HandleDisconnect(new Exception("Manual disconnect"), reuseSocket);
         }
 
@@ -161,7 +153,6 @@ namespace ProtocolSocket
 
                     //Get the converted int value for the payload size from the received data
                     dataExpected = BitConverter.ToInt32(buffer, 0);
-                    dataRemaining = dataExpected;
 
                     if (dataExpected > SocketOptions.MaxPacketSize)
                         throw new ProtocolViolationException($"Payload size exeeded whats max allowed {dataExpected} > {SocketOptions.MaxPacketSize}");
@@ -171,20 +162,16 @@ namespace ProtocolSocket
                         /*If the expected data size is bigger than what
                          * we can hold we need to write it to a resizable stream */
                         if (dataExpected > buffer.Length) {
-                            /*Get the initialize size we will read
-                             * If its not more than the buffer size, we'll just use the full length*/
-                            var initialSize = dataExpected > buffer.Length ? buffer.Length :
-                                dataExpected;
 
                             //Initialize a new MemStream to receive chunks of the payload
                             payloadStream = new MemoryStream();
 
                             //Start the receive loop of the payload
-                            socket.BeginReceive(buffer, 0, initialSize, 0,
+                            socket.BeginReceive(buffer, 0, buffer.Length, 0,
                                 ReceivePayloadStreamCallback, null);
                         } else {
                             //Else we receive directly into the buffer
-                            socket.BeginReceive(buffer, dataRead, buffer.Length - dataRead, 0,
+                            socket.BeginReceive(buffer, 0, dataExpected, 0,
                                 ReceivePayloadBufferedCallback, null);
                         }
                     }
@@ -211,18 +198,18 @@ namespace ProtocolSocket
 
                 //Increment how much data we have read
                 dataRead += read;
-
+                Console.WriteLine(dataRead);
                 ReceiveProgressChanged?.Invoke(this, dataRead, dataExpected);
 
                 //If there is more data to receive, keep the loop going.
-                if (dataRead < buffer.Length) {
-                    socket.BeginReceive(buffer, dataRead, buffer.Length - dataRead, 0,
+                if (dataRead < dataExpected) {
+                    socket.BeginReceive(buffer, dataRead, dataExpected - dataRead, 0,
                                 ReceivePayloadBufferedCallback, null);
 
                     //If we received everything
                 } else {
 
-                    //Reset dataRead for later use
+                    //Reset dataRead for receiving size
                     dataRead = 0;
 
                     //Call the event method
@@ -250,24 +237,24 @@ namespace ProtocolSocket
                     throw new SocketException((int)SocketError.ConnectionAborted);
 
                 CheckFlood();
-                    //Subtract what we read from the payload size.
-                    dataRemaining -= read;
+                //Subtract what we read from the payload size.
+                dataExpected -= read;
 
-                    //Write the data to the payload stream.
-                    payloadStream.Write(buffer, 0, read);
+                //Write the data to the payload stream.
+                payloadStream.Write(buffer, 0, read);
 
-                    ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, dataExpected);
+                ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, dataExpected);
 
                 //If there is more data to receive, keep the loop going.
-                if (dataRemaining > 0) {
+                if (dataExpected > 0) {
                     //See how much data we need to receive like the initial receive.
-                    int receiveSize = dataRemaining > SocketOptions.BufferSize ? 
-                        SocketOptions.BufferSize : dataRemaining;
+                    int receiveSize = dataExpected > SocketOptions.BufferSize ?
+                        SocketOptions.BufferSize : dataExpected;
 
                     socket.BeginReceive(buffer, 0, receiveSize, 0,
                         ReceivePayloadStreamCallback, null);
-                } else //If we received everything
-                  {
+                    //If we received everything
+                } else {
                     //Close the payload stream
                     payloadStream.Close();
 
@@ -292,26 +279,6 @@ namespace ProtocolSocket
             }
         }
 
-        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, int optionValue)
-        {
-            socket.SetSocketOption(optionLevel, optionName, optionValue);
-        }
-
-        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, bool optionValue)
-        {
-            socket.SetSocketOption(optionLevel, optionName, optionValue);
-        }
-
-        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, object optionValue)
-        {
-            socket.SetSocketOption(optionLevel, optionName, optionValue);
-        }
-
-        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, byte[] optionValue)
-        {
-            socket.SetSocketOption(optionLevel, optionName, optionValue);
-        }
-
         private void CheckFlood() {
             if (SocketOptions.DOSProtection != null) {
                 receiveRate++;
@@ -329,44 +296,19 @@ namespace ProtocolSocket
             }
         }
 
-        public void Send(byte[] packet)
-        {
+        public void Send(byte[] packet) {
             lock (syncLock) {
                 socket.Send(BitConverter.GetBytes(packet.Length));
                 socket.Send(packet);
-                SendProgressChanged?.Invoke(this, packet.Length + sizeof(int));
+                PacketSend?.Invoke(this, packet.Length + sizeof(int));
             }
         }
 
         public void SendAsync(byte[] packet) {
-            byte[] lengthData = BitConverter.GetBytes(packet.Length);
-            byte[] combinedPacket = Combine(lengthData, packet);
-            //Enqueue send, reason we do this is so we dont send the packets in wrong order
-            sendQueue.Enqueue(combinedPacket);
-            //Notify that we enqueued a send
-            NotifySendQueue();
-        }
-
-        private void NotifySendQueue() {
-            //Dequeue the send
-            byte[] packet = sendQueue.Dequeue();
-            //Begin async send of the dequeued packet
-            socket.BeginSend(packet, 0, packet.Length, 0, SendPacketCallback, null);
-        }
-
-        private void SendPacketCallback(IAsyncResult ar) {
-            try {
-                //Async callback of send
-                int send = socket.EndSend(ar);
-
-                //If theres more to dequeue
-                if(sendQueue.Count > 0) {
-                    //Notify that theres more to dequeue
-                    NotifySendQueue();
-                }
-
-                SendProgressChanged?.Invoke(this, send);
-            } catch { }
+            ThreadPool.QueueUserWorkItem((o) => {
+                Send(packet);
+                packet = null;
+            });
         }
 
         private void HandleDisconnect(Exception ex, bool reuseSocket) {
@@ -384,7 +326,7 @@ namespace ProtocolSocket
             DOSDetected = null;
             ConnectionEstablished = null;
             ConnectionError = null;
-            SendProgressChanged = null;
+            PacketSend = null;
             ReceiveProgressChanged = null;
         }
 
@@ -404,11 +346,20 @@ namespace ProtocolSocket
             UnsubscribeEvents();
         }
 
-        public static byte[] Combine(byte[] first, byte[] second) {
-            byte[] ret = new byte[first.Length + second.Length];
-            Buffer.BlockCopy(first, 0, ret, 0, first.Length);
-            Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
-            return ret;
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, int optionValue) {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, bool optionValue) {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, object optionValue) {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
+        }
+
+        public void SetInternalSocketOption(SocketOptionLevel optionLevel, SocketOptionName optionName, byte[] optionValue) {
+            socket.SetSocketOption(optionLevel, optionName, optionValue);
         }
     }
 }

@@ -18,7 +18,7 @@ namespace ProtocolSocket
         public delegate void DOSDetectedEventHandler(ProtocolSocket sender);
         public delegate void ClientStateChangedEventHandler(ProtocolSocket sender, Exception message, bool connected);
         public delegate void ReceiveProgressChangedEventHandler(ProtocolSocket sender, int received, int bytesToReceive);
-        public delegate void SendProgressChangedEventHandler(ProtocolSocket sender, int send);
+        public delegate void PacketSendEventHandler(ProtocolSocket sender, int bytesSend);
         public delegate void ConnectionEstablishedEventHandler(ProtocolSocket sender);
         public delegate void ConnectionErrorEventHandler(ProtocolSocket sender, Exception exception);
 
@@ -27,16 +27,17 @@ namespace ProtocolSocket
         public event ConnectionErrorEventHandler ConnectionError;
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
         public event PacketReceivedEventHandler PacketReceived;
-        public event ClientStateChangedEventHandler ClientStateChanged;
         public event DOSDetectedEventHandler DOSDetected;
-        public event SendProgressChangedEventHandler SendProgressChanged;
+        public event PacketSendEventHandler PacketSend;
 
         public bool Listening { get; private set; }
         public ProtocolServerOptions ServerSocketOptions { get; private set; }
 
         public IList<ProtocolSocket> ConnectedClients {
             get {
-                lock (syncLock) { return connectedClients.AsReadOnly(); }
+                lock (syncLock) {
+                    return connectedClients.AsReadOnly();
+                }
             }
         }
 
@@ -51,8 +52,7 @@ namespace ProtocolSocket
         List<string> blockedHosts;
         object syncLock;
 
-        public ProtocolServer(ProtocolServerOptions serverSocketOptions)
-        {
+        public ProtocolServer(ProtocolServerOptions serverSocketOptions) {
             Listening = false;
             syncLock = new object();
             ServerSocketOptions = serverSocketOptions;
@@ -60,8 +60,7 @@ namespace ProtocolSocket
             blockedHosts = new List<string>();
         }
 
-        public void Listen()
-        {
+        public void Listen() {
             if (Listening) {
                 throw new InvalidOperationException("Server is already listening. Please call Close() before calling Listen()");
             } else {
@@ -77,8 +76,7 @@ namespace ProtocolSocket
             }
         }
 
-        public void Stop()
-        {
+        public void Stop() {
             if (Listening) {
                 listeningSocket.Close();
                 listeningSocket = null;
@@ -93,11 +91,10 @@ namespace ProtocolSocket
             }
         }
 
-        private void AcceptCallBack(IAsyncResult iar)
-        {
+        private void AcceptCallBack(IAsyncResult iar) {
             try {
                 Socket accepted = listeningSocket.EndAccept(iar);
-                if (blockedHosts.Contains((accepted.RemoteEndPoint as IPEndPoint).Address.ToString()){
+                if (blockedHosts.Contains((accepted.RemoteEndPoint as IPEndPoint).Address.ToString())) {
                     accepted.Disconnect(false);
                     return;
                 }
@@ -108,7 +105,7 @@ namespace ProtocolSocket
                 protocolSocket.ConnectionEstablished += ProtocolSocket_ConnectionEstablished;
                 protocolSocket.PacketReceived += ProtocolSocket_PacketReceived;
                 protocolSocket.ReceiveProgressChanged += ProtocolSocket_ReceiveProgressChanged;
-                protocolSocket.SendProgressChanged += ProtocolSocket_SendProgressChanged;
+                protocolSocket.PacketSend += ProtocolSocket_PacketSend;
                 protocolSocket.DOSDetected += ProtocolSocket_DOSDetected;
 
                 protocolSocket.Start();
@@ -132,35 +129,32 @@ namespace ProtocolSocket
             }
         }
 
-        public void BroadcastPacket(byte[] packet, ProtocolSocket exception = null)
-        {
+        public void Broadcast(byte[] packet, ProtocolSocket exception = null) {
             lock (syncLock) {
                 for (int i = 0; i > connectedClients.Count; i++) {
                     var client = connectedClients[i];
                     if (client != exception) {
-                        try { client.SendPacket(packet); } catch { }
+                        try {
+                            client.Send(packet);
+                        } catch { }
                     }
                 }
             }
         }
 
-        private void ProtocolSocket_SendProgressChanged(ProtocolSocket sender, int Send)
-        {
-            SendProgressChanged?.Invoke(sender, Send);
+        private void ProtocolSocket_PacketSend(ProtocolSocket sender, int Send) {
+            PacketSend?.Invoke(sender, Send);
         }
 
-        private void ProtocolSocket_DOSDetected(ProtocolSocket sender)
-        {
+        private void ProtocolSocket_DOSDetected(ProtocolSocket sender) {
             DOSDetected?.Invoke(sender);
         }
 
-        private void ProtocolSocket_ReceiveProgressChanged(ProtocolSocket sender, int Received, int BytesToReceive)
-        {
-            ReceiveProgressChanged?.Invoke(sender, Received, BytesToReceive);
+        private void ProtocolSocket_ReceiveProgressChanged(ProtocolSocket sender, int bytesReceived, int bytesToReceive) {
+            ReceiveProgressChanged?.Invoke(sender, bytesReceived, bytesToReceive);
         }
 
-        private void ProtocolSocket_PacketReceived(ProtocolSocket sender, PacketReceivedEventArgs PacketReceivedEventArgs)
-        {
+        private void ProtocolSocket_PacketReceived(ProtocolSocket sender, PacketReceivedEventArgs PacketReceivedEventArgs) {
             PacketReceived?.Invoke(sender, PacketReceivedEventArgs);
         }
 
@@ -173,8 +167,7 @@ namespace ProtocolSocket
                 blockedHosts.Add(host);
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             Stop();
             ListeningStateChanged = null;
         }
