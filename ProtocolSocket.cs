@@ -1,9 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 
 namespace ProtocolSocket
 {
@@ -30,11 +30,12 @@ namespace ProtocolSocket
         public bool Running { get; private set; }
 
         public EndPoint RemoteEndPoint { get; private set; }
-        public ProtocolSocketOptions SocketOptions { get; }
+        public ProtocolSocketOptions SocketOptions { get; private set; }
 
         private Socket socket;
         private Stopwatch stopWatch;
         private object syncLock;
+        private Queue<byte[]> sendQueue;
 
         private byte[] buffer;
         private int dataRead;
@@ -64,6 +65,7 @@ namespace ProtocolSocket
         private void Setup()
         {
             syncLock = new object();
+            sendQueue = new Queue<byte[]>();
             receiveRate = 0;
             dataRead = 0;
             buffer = new byte[SocketOptions.BufferSize];
@@ -98,8 +100,7 @@ namespace ProtocolSocket
         }
 
         [Obsolete("Please use ConnectAsync() method instead")]
-        public void Connect(string IP, int Port)
-        {
+        public void Connect(string IP, int Port) {
             try {
                 socket.Connect(IP, Port);
                 Start();
@@ -112,8 +113,8 @@ namespace ProtocolSocket
             socket.BeginConnect(host, port, ConnectCallBack, null);
         }
 
-        public void ConnectAsync(EndPoint remoteEP) {
-            socket.BeginConnect(remoteEP, ConnectCallBack, null);
+        public void ConnectAsync(EndPoint hostEP) {
+            socket.BeginConnect(hostEP, ConnectCallBack, null);
         }
 
         private void ConnectCallBack(IAsyncResult ar) {
@@ -124,8 +125,7 @@ namespace ProtocolSocket
             catch(Exception ex) { ConnectionError?.Invoke(this, ex); }
         }
 
-        private void BeginReceive()
-        {
+        private void BeginReceive() {
             //First we begin receive the size header
             socket.BeginReceive(buffer, dataRead, SIZE_HEADER - dataRead, 0,
                 ReceiveSizeCallback, null);
@@ -135,8 +135,7 @@ namespace ProtocolSocket
         /// This callback is for handling the receive of the size header.
         /// </summary>
         /// <param name="ar"></param>
-        private void ReceiveSizeCallback(IAsyncResult ar)
-        {
+        private void ReceiveSizeCallback(IAsyncResult ar) {
             try {
                 //Attempt to end the read
                 var read = socket.EndReceive(ar);
@@ -199,8 +198,7 @@ namespace ProtocolSocket
             }
         }
 
-        private void ReceivePayloadBufferedCallback(IAsyncResult ar)
-        {
+        private void ReceivePayloadBufferedCallback(IAsyncResult ar) {
             try {
                 //Attempt to finish the async read.
                 var read = socket.EndReceive(ar);
@@ -242,8 +240,7 @@ namespace ProtocolSocket
             }
         }
 
-        private void ReceivePayloadStreamCallback(IAsyncResult ar)
-        {
+        private void ReceivePayloadStreamCallback(IAsyncResult ar) {
             try {
                 //Attempt to finish the async read.
                 var read = socket.EndReceive(ar);
@@ -315,8 +312,7 @@ namespace ProtocolSocket
             socket.SetSocketOption(optionLevel, optionName, optionValue);
         }
 
-        private void CheckFlood()
-        {
+        private void CheckFlood() {
             if (SocketOptions.DOSProtection != null) {
                 receiveRate++;
 
@@ -333,7 +329,7 @@ namespace ProtocolSocket
             }
         }
 
-        public void SendPacket(byte[] packet)
+        public void Send(byte[] packet)
         {
             lock (syncLock) {
                 socket.Send(BitConverter.GetBytes(packet.Length));
@@ -342,27 +338,35 @@ namespace ProtocolSocket
             }
         }
 
-        public void SendPacketCombined(byte[] packet) {
+        public void SendAsync(byte[] packet) {
             byte[] lengthData = BitConverter.GetBytes(packet.Length);
             byte[] combinedPacket = Combine(lengthData, packet);
-            socket.Send(combinedPacket);
-            SendProgressChanged?.Invoke(this, combinedPacket.Length);
+            //Enqueue send, reason we do this is so we dont send the packets in wrong order
+            sendQueue.Enqueue(combinedPacket);
+            //Notify that we enqueued a send
+            NotifySendQueue();
         }
 
-        public void SendPacketAsync(byte[] packet) {
-            byte[] lengthData = BitConverter.GetBytes(packet.Length);
-            byte[] combinedPacket = Combine(lengthData, packet);
-            socket.BeginSend(combinedPacket, 0, combinedPacket.Length, 0, SendPacketCallBack, null);
+        private void NotifySendQueue() {
+            //Dequeue the send
+            byte[] packet = sendQueue.Dequeue();
+            //Begin async send of the dequeued packet
+            socket.BeginSend(packet, 0, packet.Length, 0, SendPacketCallback, null);
         }
 
-        private void SendPacketCallBack(IAsyncResult ar) {
+        private void SendPacketCallback(IAsyncResult ar) {
             try {
+                //Async callback of send
                 int send = socket.EndSend(ar);
 
-                SendProgressChanged?.Invoke(this, send);
-            } catch {
+                //If theres more to dequeue
+                if(sendQueue.Count > 0) {
+                    //Notify that theres more to dequeue
+                    NotifySendQueue();
+                }
 
-            }
+                SendProgressChanged?.Invoke(this, send);
+            } catch { }
         }
 
         private void HandleDisconnect(Exception ex, bool reuseSocket) {
@@ -371,8 +375,7 @@ namespace ProtocolSocket
             ConnectionError?.Invoke(this, ex);
         }
 
-        public void Close()
-        {
+        public void Close() {
             socket.Close();
         }
 
@@ -385,14 +388,18 @@ namespace ProtocolSocket
             ReceiveProgressChanged = null;
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             Close();
             buffer = null;
             RemoteEndPoint = null;
-            //TODO: Disposal of socket options
-            UserToken = null;
+            SocketOptions = null;
             payloadStream?.Dispose();
+            sendQueue.Clear();
+
+            if (UserToken is IDisposable)
+                (UserToken as IDisposable).Dispose();
+            else
+                UserToken = null;
 
             UnsubscribeEvents();
         }
