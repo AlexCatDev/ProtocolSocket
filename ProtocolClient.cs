@@ -30,13 +30,15 @@ namespace ProtocolSocket
         public object UserToken { get; set; }
         public bool Running { get; private set; }
 
+        public long TotalBytesReceived { get; private set; }
+        public long TotalBytesSend { get; private set; }
+
         public EndPoint RemoteEndPoint { get; private set; }
         public ProtocolClientOptions ClientOptions { get; private set; }
 
         private Socket socket;
         private Stopwatch stopWatch;
         private object syncLock;
-        private Queue<byte[]> sendQueue;
 
         private byte[] buffer;
         private int dataRead;
@@ -63,7 +65,6 @@ namespace ProtocolSocket
 
         private void Setup() {
             syncLock = new object();
-            sendQueue = new Queue<byte[]>();
             receiveRate = 0;
             dataRead = 0;
             buffer = new byte[ClientOptions.BufferSize];
@@ -198,8 +199,11 @@ namespace ProtocolSocket
 
                 //Increment how much data we have read
                 dataRead += read;
-                Console.WriteLine(dataRead);
+
                 ReceiveProgressChanged?.Invoke(this, dataRead, dataExpected);
+
+                //Update global how many bytes we have received.
+                TotalBytesReceived += read;
 
                 //If there is more data to receive, keep the loop going.
                 if (dataRead < dataExpected) {
@@ -244,6 +248,8 @@ namespace ProtocolSocket
                 payloadStream.Write(buffer, 0, read);
 
                 ReceiveProgressChanged?.Invoke(this, (int)payloadStream.Length, dataExpected);
+                //Update global how many bytes we have received.
+                TotalBytesReceived += read;
 
                 //If there is more data to receive, keep the loop going.
                 if (dataExpected > 0) {
@@ -300,10 +306,16 @@ namespace ProtocolSocket
             lock (syncLock) {
                 socket.Send(BitConverter.GetBytes(packet.Length));
                 socket.Send(packet);
-                PacketSend?.Invoke(this, packet.Length + sizeof(int));
+                PacketSend?.Invoke(this, packet.Length);
+                TotalBytesSend += packet.Length;
             }
         }
 
+        /// <summary>
+        /// Send packets asynchronously.
+        /// Please use with care so you don't send more than the internal buffer can handle, resulting in huge memory usage
+        /// </summary>
+        /// <param name="packet">Packet to send</param>
         public void SendAsync(byte[] packet) {
             ThreadPool.QueueUserWorkItem((o) => {
                 Send(packet);
@@ -336,7 +348,6 @@ namespace ProtocolSocket
             RemoteEndPoint = null;
             ClientOptions = null;
             payloadStream?.Dispose();
-            sendQueue.Clear();
 
             if (UserToken is IDisposable)
                 (UserToken as IDisposable).Dispose();
