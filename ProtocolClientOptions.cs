@@ -11,9 +11,13 @@ namespace ProtocolSocket
         /// </summary>
         public int BufferSize { get; private set; }
         /// <summary>
-        /// The amount of bytes max allowed to be received
+        /// The amount of bytes maximum allowed to be received
         /// </summary>
         public int MaxPacketSize { get; set; }
+        /// <summary>
+        /// The amount of bytes minimum allowed to be received
+        /// </summary>
+        public int MinPacketSize { get; set; }
 
         /// <summary>
         /// 
@@ -22,6 +26,7 @@ namespace ProtocolSocket
         public ProtocolClientOptions(int receiveBufferSize = 1024*8)
         {
             MaxPacketSize = ushort.MaxValue - 4;
+            MinPacketSize = 4;
             if (receiveBufferSize > 4)
                 BufferSize = receiveBufferSize;
             else

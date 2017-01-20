@@ -152,9 +152,11 @@ namespace ProtocolSocket
                     dataExpected = BitConverter.ToInt32(buffer, 0);
 
                     if (dataExpected > ClientOptions.MaxPacketSize)
-                        throw new ProtocolViolationException($"Payload size exeeded whats max allowed {dataExpected} > {ClientOptions.MaxPacketSize}");
+                        throw new ProtocolViolationException($"Illegal payload size: payload size exeeded whats max allowed {dataExpected} > {ClientOptions.MaxPacketSize}");
+                    else if(dataExpected < ClientOptions.MinPacketSize)
+                        throw new ProtocolViolationException($"Illegal payload size: payload size is less than allowed {dataExpected} < {ClientOptions.MinPacketSize}");
                     else if (dataExpected == 0)
-                            throw new ProtocolViolationException("Data with no length is not allowed");
+                        throw new ProtocolViolationException("Illegal payload size: payload had no length");
                     else {
                         /*If the expected data size is bigger than what
                          * we can hold we need to write it to a resizable stream */
@@ -303,11 +305,13 @@ namespace ProtocolSocket
         }
 
         public void Send(byte[] packet) {
-            lock (syncLock) {
-                socket.Send(BitConverter.GetBytes(packet.Length));
-                socket.Send(packet);
-                TotalBytesSend += packet.Length;
-                PacketSend?.Invoke(this, packet.Length);
+            if (packet.Length > 0) {
+                lock (syncLock) {
+                    socket.Send(BitConverter.GetBytes(packet.Length));
+                    socket.Send(packet);
+                    TotalBytesSend += packet.Length;
+                    PacketSend?.Invoke(this, packet.Length);
+                }
             }
         }
 
@@ -319,7 +323,6 @@ namespace ProtocolSocket
         public void SendAsync(byte[] packet) {
             ThreadPool.QueueUserWorkItem((o) => {
                 Send(packet);
-                packet = null;
             });
         }
 
