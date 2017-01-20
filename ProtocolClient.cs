@@ -88,10 +88,6 @@ namespace ProtocolSocket
             }
         }
 
-        public void Disconnect(bool reuseSocket) {
-            HandleDisconnect(new Exception("Manual disconnect"), reuseSocket);
-        }
-
         [Obsolete("Please use ConnectAsync() method instead")]
         public void Connect(string IP, int Port) {
             try {
@@ -182,7 +178,7 @@ namespace ProtocolSocket
             } catch (ObjectDisposedException) {
                 return;
             } catch (Exception ex) {
-                HandleDisconnect(ex, false);
+                HandleDisconnect(ex);
             }
         }
 
@@ -200,10 +196,10 @@ namespace ProtocolSocket
                 //Increment how much data we have read
                 dataRead += read;
 
-                ReceiveProgressChanged?.Invoke(this, dataRead, dataExpected);
-
                 //Update global how many bytes we have received.
                 TotalBytesReceived += read;
+
+                ReceiveProgressChanged?.Invoke(this, dataRead, dataExpected);
 
                 //If there is more data to receive, keep the loop going.
                 if (dataRead < dataExpected) {
@@ -216,8 +212,11 @@ namespace ProtocolSocket
                     //Reset dataRead for receiving size
                     dataRead = 0;
 
+                    byte[] packet = new byte[dataExpected];
+                    Buffer.BlockCopy(buffer, 0, packet, 0, packet.Length);
+
                     //Call the event method
-                    PacketReceived?.Invoke(this, new PacketReceivedEventArgs(buffer));
+                    PacketReceived?.Invoke(this, new PacketReceivedEventArgs(packet));
 
                     //Start receiving the size again
                     BeginReceive();
@@ -227,7 +226,7 @@ namespace ProtocolSocket
             } catch (ObjectDisposedException) {
                 return;
             } catch (Exception ex) {
-                HandleDisconnect(ex, false);
+                HandleDisconnect(ex);
             }
         }
 
@@ -281,7 +280,7 @@ namespace ProtocolSocket
             } catch (ObjectDisposedException) {
                 return;
             } catch (Exception ex) {
-                HandleDisconnect(ex, false);
+                HandleDisconnect(ex);
             }
         }
 
@@ -292,12 +291,13 @@ namespace ProtocolSocket
                 //Time to check for receive rate
                 if (stopWatch.ElapsedMilliseconds >= ClientOptions.DOSProtection.Delta) {
 
-                    //Check if we exeeded the maximum receive rate
-                    if (receiveRate > ClientOptions.DOSProtection.MaxPackets)
-                        DOSDetected?.Invoke(this);
-
-                    receiveRate = 0;
                     stopWatch.Restart();
+
+                    //Check if we exeeded the maximum receive rate
+                    if (receiveRate > ClientOptions.DOSProtection.MaxPackets) {
+                        DOSDetected?.Invoke(this);
+                        receiveRate = 0;
+                    }
                 }
             }
         }
@@ -306,8 +306,8 @@ namespace ProtocolSocket
             lock (syncLock) {
                 socket.Send(BitConverter.GetBytes(packet.Length));
                 socket.Send(packet);
-                PacketSend?.Invoke(this, packet.Length);
                 TotalBytesSend += packet.Length;
+                PacketSend?.Invoke(this, packet.Length);
             }
         }
 
@@ -323,10 +323,10 @@ namespace ProtocolSocket
             });
         }
 
-        private void HandleDisconnect(Exception ex, bool reuseSocket) {
+        private void HandleDisconnect(Exception ex) {
             Running = false;
-            socket.Disconnect(reuseSocket);
             ConnectionError?.Invoke(this, ex);
+            Dispose();
         }
 
         public void Close() {

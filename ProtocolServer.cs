@@ -79,11 +79,11 @@ namespace ProtocolSocket
         public void Stop() {
             if (Listening) {
                 listeningSocket.Close();
-                listeningSocket = null;
                 foreach (var client in connectedClients) {
-                    client.Dispose();
+                    client.Close();
                 }
                 connectedClients.Clear();
+                BlockedHosts.Clear();
                 Listening = false;
                 ListeningStateChanged?.Invoke(this, Listening);
             } else {
@@ -159,12 +159,12 @@ namespace ProtocolSocket
         }
 
         /// <summary>
-        /// Ignores any connection made from specified host
+        /// Ignores any connection made from specified ip
         /// </summary>
-        /// <param name="host">Host ip to filter</param>
-        public void AddHostFilter(string host) {
-            if (!blockedHosts.Contains(host))
-                blockedHosts.Add(host);
+        /// <param name="ip">Remote ip of host to filter</param>
+        public void AddHostFilter(string ip) {
+            if (!blockedHosts.Contains(ip))
+                blockedHosts.Add(ip);
         }
 
         public void Dispose() {
