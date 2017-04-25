@@ -68,6 +68,7 @@ namespace ProtocolSocket
             receiveRate = 0;
             dataRead = 0;
             socket.ReceiveBufferSize = ClientOptions.BufferSize;
+            socket.SendBufferSize = 114688;
             buffer = new byte[ClientOptions.BufferSize];
         }
 
