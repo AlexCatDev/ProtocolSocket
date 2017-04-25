@@ -67,6 +67,7 @@ namespace ProtocolSocket
             syncLock = new object();
             receiveRate = 0;
             dataRead = 0;
+            socket.ReceiveBufferSize = ClientOptions.BufferSize;
             buffer = new byte[ClientOptions.BufferSize];
         }
 
