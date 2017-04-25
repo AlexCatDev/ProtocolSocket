@@ -23,14 +23,14 @@ namespace ProtocolSocket
         /// 
         /// </summary>
         /// <param name="receiveBufferSize">The amount of bytes to buffer before being written to the stream</param>
-        public ProtocolClientOptions(int receiveBufferSize = 1024*8)
+        public ProtocolClientOptions(int receiveBufferSize = 114688)
         {
-            MaxPacketSize = ushort.MaxValue - 4;
-            MinPacketSize = 4;
-            if (receiveBufferSize > 4)
+            MaxPacketSize = ushort.MaxValue;
+            MinPacketSize = 1;
+            if (receiveBufferSize > 0)
                 BufferSize = receiveBufferSize;
             else
-                BufferSize = 1024 * 8;
+                throw new Exception("Buffer size is too small.");
         }
 
         /// <summary>
