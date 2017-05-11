@@ -19,14 +19,21 @@ namespace ProtocolSocket
         /// </summary>
         public int MinPacketSize { get; set; }
 
+        public int PingInterval { get; set; }
+        public int MaxPingAttempts { get; set; }
+
         /// <summary>
         /// 
         /// </summary>
         /// <param name="receiveBufferSize">The amount of bytes to buffer before being written to the stream</param>
         public ProtocolClientOptions(int receiveBufferSize = 114688)
         {
-            MaxPacketSize = ushort.MaxValue;
+            MaxPacketSize = receiveBufferSize;
             MinPacketSize = 1;
+
+            PingInterval = NetConstants.PingInterval;
+            MaxPingAttempts = NetConstants.MaxPingAttempts;
+
             if (receiveBufferSize > 0)
                 BufferSize = receiveBufferSize;
             else

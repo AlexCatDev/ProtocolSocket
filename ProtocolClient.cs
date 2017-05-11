@@ -19,6 +19,7 @@ namespace ProtocolSocket
         public delegate void PacketSendEventHandler(ProtocolClient sender, int bytesSend);
         public delegate void ConnectionEstablishedEventHandler(ProtocolClient sender);
         public delegate void ConnectionErrorEventHandler(ProtocolClient sender, Exception exception);
+        public delegate void PingUpdatedEventHandler(ProtocolClient sender, double ping);
 
         public event ConnectionEstablishedEventHandler ConnectionEstablished;
         public event ConnectionErrorEventHandler ConnectionError;
@@ -26,6 +27,7 @@ namespace ProtocolSocket
         public event PacketSendEventHandler PacketSend;
         public event DOSDetectedEventHandler DOSDetected;
         public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
+        public event PingUpdatedEventHandler PingUpdated;
 
         public object UserToken { get; set; }
         public bool Running { get; private set; }
@@ -33,12 +35,15 @@ namespace ProtocolSocket
         public long TotalBytesReceived { get; private set; }
         public long TotalBytesSend { get; private set; }
 
+        public double Ping { get; private set; }
+
         public EndPoint RemoteEndPoint { get; private set; }
         public ProtocolClientOptions ClientOptions { get; private set; }
 
         private Socket socket;
-        private Stopwatch stopWatch;
-        private object syncLock;
+        private Stopwatch DOSWatch;
+        private Stopwatch pingWatch;
+        private object syncLock = new object();
 
         private byte[] buffer;
         private int dataRead;
@@ -46,6 +51,8 @@ namespace ProtocolSocket
         private MemoryStream payloadStream;
 
         private int receiveRate;
+
+        private int pingAttempts;
 
         public ProtocolClient(Socket socket, ProtocolClientOptions clientOptions) {
             this.socket = socket;
@@ -64,11 +71,8 @@ namespace ProtocolSocket
         }
 
         private void Setup() {
-            syncLock = new object();
-            receiveRate = 0;
-            dataRead = 0;
             socket.ReceiveBufferSize = ClientOptions.BufferSize;
-            socket.SendBufferSize = 114688;
+            socket.SendBufferSize = ClientOptions.BufferSize;
             buffer = new byte[ClientOptions.BufferSize];
         }
 
@@ -77,11 +81,12 @@ namespace ProtocolSocket
                 if (!Running) {
                     Running = true;
                     ConnectionEstablished?.Invoke(this);
-                    stopWatch = Stopwatch.StartNew();
+                    DOSWatch = Stopwatch.StartNew();
+                    pingWatch = Stopwatch.StartNew();
 
                     BeginReceive();
                 }
-                else if (Running) {
+                else {
                     throw new InvalidOperationException("Client is already running");
                 }
             }
@@ -92,12 +97,8 @@ namespace ProtocolSocket
 
         [Obsolete("Please use ConnectAsync() method instead")]
         public void Connect(string IP, int Port) {
-            try {
-                socket.Connect(IP, Port);
-                Start();
-            } catch {
-                throw;
-            }
+            socket.Connect(IP, Port);
+            Start();
         }
 
         public void ConnectAsync(string host, int port) {
@@ -153,6 +154,19 @@ namespace ProtocolSocket
                     //Get the converted int value for the payload size from the received data
                     dataExpected = BitConverter.ToInt32(buffer, 0);
 
+                    if(dataExpected == NetConstants.PING_REQUEST) {
+                        SendPingResponse();
+                        BeginReceive();
+                        return;
+                    }else if(dataExpected == NetConstants.PING_RESPONSE) {
+                        double ping = ((double)pingWatch.ElapsedTicks / Stopwatch.Frequency) * 1000.0;
+                        Ping = ping;
+                        BeginReceive();
+                        PingUpdated?.Invoke(this, ping);
+                        pingWatch.Restart();
+                        return;
+                    }
+
                     if (dataExpected > ClientOptions.MaxPacketSize)
                         throw new ProtocolViolationException($"Illegal payload size: payload size exeeded whats max allowed {dataExpected} > {ClientOptions.MaxPacketSize}");
                     else if(dataExpected < ClientOptions.MinPacketSize)
@@ -165,7 +179,7 @@ namespace ProtocolSocket
                         if (dataExpected > buffer.Length) {
 
                             //Initialize a new MemStream to receive chunks of the payload
-                            payloadStream = new MemoryStream();
+                            payloadStream = new MemoryStream(ClientOptions.BufferSize);
 
                             //Start the receive loop of the payload
                             socket.BeginReceive(buffer, 0, buffer.Length, 0,
@@ -293,9 +307,9 @@ namespace ProtocolSocket
                 receiveRate++;
 
                 //Time to check for receive rate
-                if (stopWatch.ElapsedMilliseconds >= ClientOptions.DOSProtection.Delta) {
+                if (DOSWatch.ElapsedMilliseconds >= ClientOptions.DOSProtection.Delta) {
 
-                    stopWatch.Restart();
+                    DOSWatch.Restart();
 
                     //Check if we exeeded the maximum receive rate
                     if (receiveRate > ClientOptions.DOSProtection.MaxPackets) {
@@ -303,6 +317,31 @@ namespace ProtocolSocket
                         receiveRate = 0;
                     }
                 }
+            }
+        }
+
+        public void CheckPing() {
+            if(pingWatch.ElapsedMilliseconds >= ClientOptions.PingInterval) {
+                if(pingAttempts >= ClientOptions.MaxPingAttempts) {
+                    socket?.Close();
+                    return;
+                }
+
+                pingAttempts++;
+                pingWatch.Restart();
+                SendPingRequest();
+            }
+        }
+
+        private void SendPingRequest() {
+            lock (syncLock) {
+                socket.Send(BitConverter.GetBytes(NetConstants.PING_REQUEST));
+            }
+        }
+
+        private void SendPingResponse() {
+            lock (syncLock) {
+                socket.Send(BitConverter.GetBytes(NetConstants.PING_RESPONSE));
             }
         }
 

@@ -13,22 +13,14 @@ namespace ProtocolSocket
         //Listener events
         public event ListeningStateChangedEventHandler ListeningStateChanged;
 
-        //Client event delegates
-        public delegate void PacketReceivedEventHandler(ProtocolClient sender, PacketReceivedEventArgs packetReceivedEventArgs);
-        public delegate void DOSDetectedEventHandler(ProtocolClient sender);
-        public delegate void ClientStateChangedEventHandler(ProtocolClient sender, Exception message, bool connected);
-        public delegate void ReceiveProgressChangedEventHandler(ProtocolClient sender, int received, int bytesToReceive);
-        public delegate void PacketSendEventHandler(ProtocolClient sender, int bytesSend);
-        public delegate void ConnectionEstablishedEventHandler(ProtocolClient sender);
-        public delegate void ConnectionErrorEventHandler(ProtocolClient sender, Exception exception);
-
         //Client events
-        public event ConnectionEstablishedEventHandler ConnectionEstablished;
-        public event ConnectionErrorEventHandler ConnectionError;
-        public event ReceiveProgressChangedEventHandler ReceiveProgressChanged;
-        public event PacketReceivedEventHandler PacketReceived;
-        public event DOSDetectedEventHandler DOSDetected;
-        public event PacketSendEventHandler PacketSend;
+        public event ProtocolClient.ConnectionEstablishedEventHandler ConnectionEstablished;
+        public event ProtocolClient.ConnectionErrorEventHandler ConnectionError;
+        public event ProtocolClient.ReceiveProgressChangedEventHandler ReceiveProgressChanged;
+        public event ProtocolClient.PacketReceivedEventHandler PacketReceived;
+        public event ProtocolClient.DOSDetectedEventHandler DOSDetected;
+        public event ProtocolClient.PacketSendEventHandler PacketSend;
+        public event ProtocolClient.PingUpdatedEventHandler PingUpdated;
 
         public bool Listening { get; private set; }
         public ProtocolServerOptions ServerOptions { get; private set; }
@@ -107,12 +99,17 @@ namespace ProtocolSocket
                 protocolClient.ReceiveProgressChanged += ProtocolClient_ReceiveProgressChanged;
                 protocolClient.PacketSend += ProtocolClient_PacketSend;
                 protocolClient.DOSDetected += ProtocolClient_DOSDetected;
+                protocolClient.PingUpdated += ProtocolClient_PingUpdated;
 
                 protocolClient.Start();
                 listeningSocket.BeginAccept(AcceptCallBack, null);
             } catch {
                 //MessageBox.Show(ex.Message + " \n\n [" + ex.StackTrace + "]");
             }
+        }
+
+        private void ProtocolClient_PingUpdated(ProtocolClient sender, double ping) {
+            PingUpdated?.Invoke(sender, ping);
         }
 
         private void ProtocolClient_ConnectionEstablished(ProtocolClient sender) {
